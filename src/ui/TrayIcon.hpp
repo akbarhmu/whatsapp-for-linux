@@ -1,6 +1,6 @@
 #pragma once
 
-#include <libayatana-appindicator/app-indicator.h>
+#include <libappindicator/app-indicator.h>
 #include <gtkmm/menu.h>
 
 namespace wfl::ui
