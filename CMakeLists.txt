@@ -1,39 +1,77 @@
-cmake_minimum_required(VERSION 3.8)
-project(whatsapp-for-linux VERSION 1.4.1)
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+cmake_minimum_required(VERSION 3.12)
+project(
+    whatsapp-for-linux
+    VERSION 1.5.0
+    DESCRIPTION "An unofficial WhatsApp desktop application for Linux"
+    HOMEPAGE_URL "https://github.com/eneshecan/whatsapp-for-linux"
+    LANGUAGES C CXX
+)
 
 include(GNUInstallDirs)
 
-file(WRITE "${CMAKE_SOURCE_DIR}/src/VERSION" ${PROJECT_VERSION})
-file(WRITE "${CMAKE_SOURCE_DIR}/src/Version.hpp" "constexpr auto const VERSION = \"${PROJECT_VERSION}\";\n")
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(WFL_NAME ${CMAKE_PROJECT_NAME})
+set(WFL_FRIENDLY_NAME "WhatsApp for Linux")
+set(WFL_DESCRIPTION ${CMAKE_PROJECT_DESCRIPTION})
+set(WFL_HOMEPAGE ${CMAKE_PROJECT_HOMEPAGE_URL})
+set(WFL_VERSION ${CMAKE_PROJECT_VERSION})
+string(TIMESTAMP WFL_BUILD_DATE "%Y-%m-%d")
+set(WFL_APP_ID "com.github.eneshecan.WhatsAppForLinux")
+set(WFL_ICON ${WFL_APP_ID})
+set(GETTEXT_PACKAGE ${WFL_NAME})
+set(WFL_LOCALEDIR "${CMAKE_INSTALL_FULL_LOCALEDIR}")
 
-add_custom_command(
-    OUTPUT ${CMAKE_SOURCE_DIR}/src/Resources.c
-    COMMAND glib-compile-resources --target=${CMAKE_SOURCE_DIR}/src/Resources.c --generate-source gresource.xml
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resource
-    COMMENT "Compiling ui resources"
-)
+message(STATUS "${CMAKE_PROJECT_NAME} version: ${WFL_VERSION}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/VERSION" ${WFL_VERSION})
+configure_file(${CMAKE_SOURCE_DIR}/src/Config.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/generated/Config.hpp)
+configure_file(${CMAKE_SOURCE_DIR}/resource/desktop/${WFL_APP_ID}.desktop.in ${CMAKE_CURRENT_BINARY_DIR}/generated/${WFL_APP_ID}.desktop)
+configure_file(${CMAKE_SOURCE_DIR}/resource/desktop/${WFL_APP_ID}.appdata.xml.in ${CMAKE_CURRENT_BINARY_DIR}/generated/${WFL_APP_ID}.appdata.xml)
 
-FIND_PACKAGE(PkgConfig REQUIRED)
-PKG_CHECK_MODULES(GTKMM3 gtkmm-3.0 REQUIRED)
-PKG_CHECK_MODULES(WEBKIT webkit2gtk-4.0 REQUIRED)
-PKG_CHECK_MODULES(APP_INDICATOR appindicator3-0.1 REQUIRED)
-include_directories(${GTKMM3_INCLUDE_DIRS} ${WEBKIT_INCLUDE_DIRS} ${APP_INDICATOR_INCLUDE_DIRS})
+message(STATUS "Compiling UI resources")
+execute_process(
+        COMMAND glib-compile-resources --target=${CMAKE_CURRENT_BINARY_DIR}/generated/Resources.c --generate-source gresource.xml
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/resource
+    )
 
-add_executable(whatsapp-for-linux
-    src/main.cpp
-    src/Version.hpp
-    src/Resources.c
-    src/util/Settings.cpp
-    src/ui/Application.cpp
-    src/ui/MainWindow.cpp
-    src/ui/PhoneNumberDialog.cpp
-    src/ui/TrayIcon.cpp
-    src/ui/WebView.cpp)
-target_link_libraries(whatsapp-for-linux ${GTKMM3_LIBRARIES} ${WEBKIT_LIBRARIES} ${APP_INDICATOR_LIBRARIES})
+find_package(PkgConfig REQUIRED)
 
-install(TARGETS whatsapp-for-linux DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(FILES ${CMAKE_SOURCE_DIR}/resource/desktop/whatsapp-for-linux.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+find_package(Intl REQUIRED)
+find_package(Gettext REQUIRED)
+include_directories(${Intl_INCLUDE_DIRS})
+link_directories(${INTL_LIBRARY_DIRS})
+
+pkg_check_modules(GTKMM gtkmm-3.0 REQUIRED)
+include_directories(${GTKMM_INCLUDE_DIRS})
+
+pkg_check_modules(WEBKIT webkit2gtk-4.0)
+if (NOT WEBKIT_FOUND)
+    pkg_check_modules(WEBKIT webkit2gtk-4.1 REQUIRED)
+endif()
+include_directories(${WEBKIT_INCLUDE_DIRS})
+
+pkg_check_modules(APPINDICATOR appindicator3-0.1 REQUIRED)
+include_directories(${APPINDICATOR_INCLUDE_DIRS})
+
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/generated/)
+
+add_executable(${CMAKE_PROJECT_NAME}
+        src/main.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/generated/Resources.c
+        src/util/Helper.cpp
+        src/util/Settings.cpp
+        src/ui/Application.cpp
+        src/ui/MainWindow.cpp
+        src/ui/PreferencesWindow.cpp
+        src/ui/PhoneNumberDialog.cpp
+        src/ui/TrayIcon.cpp
+        src/ui/WebView.cpp
+    )
+target_link_libraries(${CMAKE_PROJECT_NAME} ${GTKMM_LIBRARIES} ${WEBKIT_LIBRARIES} ${APPINDICATOR_LIBRARIES} ${Intl_LIBRARIES})
+
+install(TARGETS ${CMAKE_PROJECT_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/generated/${WFL_APP_ID}.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/generated/${WFL_APP_ID}.appdata.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/resource/image/icons DESTINATION ${CMAKE_INSTALL_DATADIR})
+
+add_subdirectory(po)

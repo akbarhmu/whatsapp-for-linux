@@ -3,6 +3,8 @@
 #include <string>
 #include <optional>
 #include <locale>
+#include <glibmm/i18n.h>
+#include <glibmm/main.h>
 #include <gtkmm/messagedialog.h>
 #include <gtkmm/filechooserdialog.h>
 #include "../util/Settings.hpp"
@@ -29,23 +31,12 @@ namespace wfl::ui
 
         gboolean permissionRequest(WebKitWebView*, WebKitPermissionRequest* request, GtkWindow*)
         {
-            auto dialog = Gtk::MessageDialog{"Notification Request", false, Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_YES_NO};
-            dialog.set_secondary_text("Would you like Whatsapp to send you notifications?");
+            auto dialog = Gtk::MessageDialog{_("Notification Request"), false, Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_YES_NO};
+            dialog.set_secondary_text(_("Would you like to allow notifications?"));
 
-            auto const result = dialog.run();
-            switch (result)
-            {
-                case Gtk::RESPONSE_YES:
-                    webkit_permission_request_allow(request);
-                    util::Settings::getInstance().setAllowPermissions(true);
-                    break;
-                case Gtk::RESPONSE_NO:
-                    webkit_permission_request_deny(request);
-                    util::Settings::getInstance().setAllowPermissions(false);
-                    break;
-                default:
-                    break;
-            }
+            auto const allow = (dialog.run() == Gtk::RESPONSE_YES);
+            allow ? webkit_permission_request_allow(request) : webkit_permission_request_deny(request);
+            util::Settings::getInstance().setValue("web", "allow-permissions", allow);
 
             return TRUE;
         }
@@ -75,9 +66,9 @@ namespace wfl::ui
 
         gboolean downloadDecideDestination(WebKitDownload* download, char* suggestedFilename, gpointer)
         {
-            auto dialog = Gtk::FileChooserDialog{"Save File", Gtk::FILE_CHOOSER_ACTION_SAVE};
-            dialog.add_button("Ok", Gtk::RESPONSE_OK);
-            dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+            auto dialog = Gtk::FileChooserDialog{_("Save File"), Gtk::FILE_CHOOSER_ACTION_SAVE};
+            dialog.add_button(_("Ok"), Gtk::RESPONSE_OK);
+            dialog.add_button(_("Cancel"), Gtk::RESPONSE_CANCEL);
             dialog.set_current_name(suggestedFilename);
 
             auto const result = dialog.run();
@@ -104,13 +95,15 @@ namespace wfl::ui
 
         void initializeNotificationPermission(WebKitWebContext* context, gpointer)
         {
-            if (util::Settings::getInstance().getAllowPermissions())
+            if (util::Settings::getInstance().getValue<bool>("web", "allow-permissions"))
             {
                 auto const origin = webkit_security_origin_new_for_uri(WHATSAPP_WEB_URI);
                 auto const allowedOrigins = g_list_alloc();
                 allowedOrigins->data = origin;
 
                 webkit_web_context_initialize_notification_permissions(context, allowedOrigins, nullptr);
+
+                g_list_free(allowedOrigins);
             }
             else
             {
@@ -155,7 +148,7 @@ namespace wfl::ui
         {
             if (auto const webView = reinterpret_cast<WebView*>(userData); webView)
             {
-                webView->setLoadStatus(loadEvent);
+                webView->onLoadStatusChanged(loadEvent);
             }
         }
     }
@@ -164,7 +157,7 @@ namespace wfl::ui
     WebView::WebView()
         : Gtk::Widget{webkit_web_view_new()}
         , m_loadStatus{WEBKIT_LOAD_STARTED}
-        , m_zoomLevel{util::Settings::getInstance().getZoomLevel()}
+        , m_stoppedResponding{false}
         , m_signalLoadStatus{}
         , m_signalNotification{}
         , m_signalNotificationClicked{}
@@ -177,6 +170,7 @@ namespace wfl::ui
         g_signal_connect(*this, "show-notification", G_CALLBACK(showNotification), this);
         g_signal_connect(webContext, "download-started", G_CALLBACK(downloadStarted), nullptr);
         g_signal_connect(webContext, "initialize-notification-permissions", G_CALLBACK(initializeNotificationPermission), nullptr);
+        Glib::signal_timeout().connect(sigc::mem_fun(*this, &WebView::onTimeout), 5000);
 
         if (auto const lang = getSystemLanguage(); lang.has_value())
         {
@@ -187,14 +181,16 @@ namespace wfl::ui
 
         auto const settings = webkit_web_view_get_settings(*this);
         webkit_settings_set_enable_developer_extras(settings, TRUE);
+        auto hwAccelPolicy = static_cast<WebKitHardwareAccelerationPolicy>(util::Settings::getInstance().getValue<int>("web", "hw-accel", 1));
+        webkit_settings_set_hardware_acceleration_policy(settings, hwAccelPolicy);
 
-        webkit_web_view_set_zoom_level(*this, m_zoomLevel);
+        webkit_web_view_set_zoom_level(*this, util::Settings::getInstance().getValue<double>("general", "zoom-level", 1.0));
         webkit_web_view_load_uri(*this, WHATSAPP_WEB_URI);
     }
 
     WebView::~WebView()
     {
-        util::Settings::getInstance().setZoomLevel(m_zoomLevel);
+        webkit_web_view_terminate_web_process(*this);
     }
 
     WebView::operator WebKitWebView*()
@@ -210,6 +206,12 @@ namespace wfl::ui
     WebKitLoadEvent WebView::getLoadStatus() const noexcept
     {
         return m_loadStatus;
+    }
+
+    void WebView::setHwAccelPolicy(WebKitHardwareAccelerationPolicy policy)
+    {
+        auto const settings = webkit_web_view_get_settings(*this);
+        webkit_settings_set_hardware_acceleration_policy(settings, policy);
     }
 
     void WebView::sendRequest(std::string url)
@@ -247,30 +249,30 @@ namespace wfl::ui
 
     void WebView::zoomIn()
     {
-        m_zoomLevel = webkit_web_view_get_zoom_level(*this);
-        if (m_zoomLevel < 2)
+        if (auto zoomLevel = webkit_web_view_get_zoom_level(*this); zoomLevel < 2.0)
         {
-            m_zoomLevel += 0.05;
-            webkit_web_view_set_zoom_level(*this, m_zoomLevel);
+            zoomLevel += 0.05;
+            webkit_web_view_set_zoom_level(*this, zoomLevel);
+            util::Settings::getInstance().setValue("general", "zoom-level", zoomLevel);
         }
     }
 
     void WebView::zoomOut()
     {
-        m_zoomLevel = webkit_web_view_get_zoom_level(*this);
-        if (m_zoomLevel > 0.5)
+        if (auto zoomLevel = webkit_web_view_get_zoom_level(*this); zoomLevel > 0.5)
         {
-            m_zoomLevel -= 0.05;
-            webkit_web_view_set_zoom_level(*this, m_zoomLevel);
+            zoomLevel -= 0.05;
+            webkit_web_view_set_zoom_level(*this, zoomLevel);
+            util::Settings::getInstance().setValue("general", "zoom-level", zoomLevel);
         }
     }
 
-    double WebView::getZoomLevel() const noexcept
+    double WebView::getZoomLevel()
     {
-        return m_zoomLevel;
+        return webkit_web_view_get_zoom_level(*this);
     }
 
-    std::string WebView::getZoomLevelString() const noexcept
+    std::string WebView::getZoomLevelString()
     {
         return std::to_string(static_cast<int>(std::round(getZoomLevel() * 100))).append("%");
     }
@@ -290,9 +292,35 @@ namespace wfl::ui
         return m_signalNotificationClicked;
     }
 
-    void WebView::setLoadStatus(WebKitLoadEvent loadEvent)
+    void WebView::onLoadStatusChanged(WebKitLoadEvent loadEvent)
     {
         m_loadStatus = loadEvent;
         m_signalLoadStatus.emit(m_loadStatus);
+    }
+
+    bool WebView::onTimeout()
+    {
+        auto const responsive = webkit_web_view_get_is_web_process_responsive(*this);
+        // Give a second chance to WebView for recovering itself by checking if it stopped responding before
+        if (!responsive && m_stoppedResponding)
+        {
+            auto dialog = Gtk::MessageDialog{_("Unresponsive"), false, Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_YES_NO, true};
+            dialog.set_secondary_text(_("The application is not responding. Would you like to reload?"));
+
+            auto const result = dialog.run();
+            switch (result)
+            {
+                case Gtk::RESPONSE_YES:
+                    webkit_web_view_terminate_web_process(*this);
+                    webkit_web_view_reload(*this);
+                    break;
+                case Gtk::RESPONSE_NO:
+                default:
+                    break;
+            }
+        }
+        m_stoppedResponding = !responsive;
+
+        return true;
     }
 }
