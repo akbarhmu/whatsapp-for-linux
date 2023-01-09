@@ -22,9 +22,9 @@ namespace wfl::ui
         , m_shortcutsWindow{nullptr}
         , m_fullscreen{false}
     {
-        auto const appIcon16x16   = Gdk::Pixbuf::create_from_resource("/main/image/icons/hicolor/16x16/apps/"   WFL_ICON ".png");
-        auto const appIcon32x32   = Gdk::Pixbuf::create_from_resource("/main/image/icons/hicolor/32x32/apps/"   WFL_ICON ".png");
-        auto const appIcon64x64   = Gdk::Pixbuf::create_from_resource("/main/image/icons/hicolor/64x64/apps/"   WFL_ICON ".png");
+        auto const appIcon16x16   = Gdk::Pixbuf::create_from_resource("/main/image/icons/hicolor/16x16/apps/" WFL_ICON ".png");
+        auto const appIcon32x32   = Gdk::Pixbuf::create_from_resource("/main/image/icons/hicolor/32x32/apps/" WFL_ICON ".png");
+        auto const appIcon64x64   = Gdk::Pixbuf::create_from_resource("/main/image/icons/hicolor/64x64/apps/" WFL_ICON ".png");
         auto const appIcon128x128 = Gdk::Pixbuf::create_from_resource("/main/image/icons/hicolor/128x128/apps/" WFL_ICON ".png");
         set_icon_list({appIcon16x16, appIcon32x32, appIcon64x64, appIcon128x128});
         set_default_icon(appIcon64x64);
@@ -152,14 +152,14 @@ namespace wfl::ui
         return Gtk::ApplicationWindow::on_key_press_event(keyEvent);
     }
 
-    bool MainWindow::on_window_state_event(GdkEventWindowState *windowStateEvent)
+    bool MainWindow::on_window_state_event(GdkEventWindowState* windowStateEvent)
     {
         m_fullscreen = (windowStateEvent->new_window_state & GDK_WINDOW_STATE_FULLSCREEN);
 
         return Gtk::ApplicationWindow::on_window_state_event(windowStateEvent);
     }
 
-    bool MainWindow::on_delete_event(GdkEventAny* any_event)
+    bool MainWindow::on_delete_event(GdkEventAny*)
     {
         if (m_trayIcon.isVisible())
         {
@@ -289,7 +289,7 @@ namespace wfl::ui
         aboutDialog.set_program_name(_("WhatsApp for Linux"));
         aboutDialog.set_comments(_("An unofficial WhatsApp desktop application for Linux"));
         aboutDialog.set_website(WFL_HOMEPAGE);
-        aboutDialog.set_website_label(_("Github Repository"));
+        aboutDialog.set_website_label(_("GitHub Repository"));
         aboutDialog.set_license_type(Gtk::LICENSE_GPL_3_0);
 
         aboutDialog.set_transient_for(*this);
